@@ -1,0 +1,16 @@
+#!/usr/bin/env ruby
+
+require 'webrick'
+
+server = WEBrick::HTTPServer.new :Port => 12000
+
+server.mount_proc '/hello' do |req,res|
+  res.body = 'Hello, world!'
+end
+
+server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
+server.mount '/Main.js', WEBrick::HTTPServlet::FileHandler, 'Main.js'
+
+trap("INT") { server.stop }
+server.start
+
