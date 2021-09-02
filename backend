@@ -1,15 +1,39 @@
 #!/usr/bin/env ruby
 
 require 'webrick'
+require 'digest'
+require 'tempfile'
+require 'open3'
 
 server = WEBrick::HTTPServer.new :Port => 12000
 
-server.mount_proc '/hello' do |req,res|
-  res.body = 'Hello, world!'
+server.mount_proc '/run' do |req,res|
+  Tempfile.create do |f|
+    f.write (req.body)
+    f.rewind
+    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
+      out_text = stdout.read
+      err_text = stderr.read
+
+      stdin.close
+      stdout.close
+      stderr.close
+
+      exit_status = wait_thr.value
+
+      if exit_status.success?
+        res.body = out_text
+      else
+        res.body = "Souffle encountered an error:\n\n" + err_text
+      end
+    end
+  end
 end
 
 server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
 server.mount '/Main.js', WEBrick::HTTPServlet::FileHandler, 'Main.js'
+server.mount '/CodeEditor.js', WEBrick::HTTPServlet::FileHandler, 'CodeEditor.js'
+server.mount '/SouffleMode.js', WEBrick::HTTPServlet::FileHandler, 'SouffleMode.js'
 
 trap("INT") { server.stop }
 server.start

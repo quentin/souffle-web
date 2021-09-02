@@ -3,12 +3,17 @@ module Main exposing (..)
 
 import Browser exposing (Document)
 import Http
-import Element exposing (..)
-import Element.Background as Background
-import Element.Border as Border
-import Element.Input as Input
+import Bootstrap.Button as Button
+import Bootstrap.ButtonGroup as ButtonGroup
+import Bootstrap.Grid as Grid
+import Bootstrap.Form.Textarea as Textarea
+import Html exposing (text, div, pre)
+import Html.Attributes as Attributes
+import CodeEditor as Editor
 
 -- MAIN
+
+fooExample = "/* the foo rule*/\n.decl foo( /*attribute*/ a:number, b:symbol)\n.output foo\n\nfoo(1,\"2\").\nfoo(4,\"4\").\nfoo(33,\"large\").\n\n.decl query(a:number)\n.output query\n\nquery(n) :- foo(n,_), n < 10."
 
 main =
   Browser.document
@@ -19,68 +24,78 @@ main =
     }
 
 type Page
-  = Hello
+  = Editor
 
 type alias Model =
   { page : Page
   , code : String
+  , result : String
   }
 
 type Msg
   = Submit
   | InputChanged String
+  | GotResult (Result Http.Error String)
+  | LoadFooExample
 
 init : () -> (Model, Cmd Msg)
-init _ = ( {page = Hello, code = ""} , Cmd.none)
-
-myInput =
-  Input.multiline
-    [width fill]
-    { label = Input.labelAbove [] (Element.text "myInput")
-    , placeholder = Just (Input.placeholder [] (Element.text "input"))
-    , onChange = \new -> InputChanged new
-    , text = ""
-    , spellcheck = False
+init _ =
+  ( { page = Editor
+    , code = ""
+    , result = ""
     }
-
-blue =
-  Element.rgb255 238 238 238
-
-mySubmit =
-  Input.button
-    [ Background.color blue, Border.rounded 3 ]
-    {
-      onPress = Just (Submit)
-    , label = (text "run")
-    }
+  , Cmd.none
+  )
 
 view : Model -> Document Msg
 view model =
-  { title = 
+  { title =
     case model.page of
-      Hello -> "Hello"
+      Editor -> "Editor"
 
-  , body =
-    [ layout []
-      ( case model.page of
-          Hello -> hello model
-      )
-    ]
+  , body = [
+    ( case model.page of
+      Editor -> editor model
+    )]
   }
 
-hello model =
-  column [ width fill, spacing 20 ]
-    [ myInput
-    , mySubmit
-    , paragraph []
-      [ text model.code ]
-    ]
+editor model =
+  Grid.container []
+      [ Grid.row []
+          [ Grid.col [] [ Editor.codeEditor [ Editor.editorValue model.code, Editor.onEditorChanged InputChanged ] [] ] ]
+      , Grid.row []
+          [ Grid.col []
+            [ ButtonGroup.buttonGroup []
+              [ ButtonGroup.button
+                [ Button.primary , Button.onClick Submit ]
+                [ text "Run" ]
+              , ButtonGroup.button
+                  [ Button.onClick LoadFooExample ]
+                  [ text "Load Foo" ]
+              ]
+            ]
+          ]
+      , Grid.row []
+          [ Grid.col [] [ pre [Attributes.style "background-color" "gray", Attributes.disabled True] [text model.result] ] ]
+      ]
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    LoadFooExample -> ( {model | code = fooExample}, Cmd.none )
     InputChanged str -> ( {model | code = str}, Cmd.none)
-    Submit -> (model, Cmd.none)
+    Submit -> (submit model)
+    GotResult (Ok value) -> ({model | result = value}, Cmd.none)
+    GotResult (Err e) -> ({model | result = "Error :("}, Cmd.none)
+
+submit : Model -> (Model, Cmd Msg)
+submit model =
+  ( model
+  , Http.post {
+        url = "http://localhost:12000/run"
+      , body = Http.stringBody "application/datalog" model.code
+      , expect = Http.expectString GotResult }
+  )
 
 
 -- SUBSCRIPTIONS
