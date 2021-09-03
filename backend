@@ -4,13 +4,35 @@ require 'webrick'
 require 'digest'
 require 'tempfile'
 require 'open3'
+require 'json'
 
 server = WEBrick::HTTPServer.new :Port => 12000
 
 server.mount_proc '/run' do |req,res|
+
+  json_res = {}
+
   Tempfile.create do |f|
     f.write (req.body)
     f.rewind
+
+    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle --show=scc-graph -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
+      out_text = stdout.read
+      err_text = stderr.read
+
+      stdin.close
+      stdout.close
+      stderr.close
+
+      exit_status = wait_thr.value
+
+      if exit_status.success?
+        json_res['scc'] = out_text
+      else
+        json_res['scc'] = ""
+      end
+    end
+
     Open3.popen3("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
       out_text = stdout.read
       err_text = stderr.read
@@ -22,18 +44,21 @@ server.mount_proc '/run' do |req,res|
       exit_status = wait_thr.value
 
       if exit_status.success?
-        res.body = out_text
+        json_res['output'] = out_text
       else
-        res.body = "Souffle encountered an error:\n\n" + err_text
+        json_res['output'] = err_text
       end
     end
+
+    res.body = json_res.to_json
   end
 end
 
 server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
-server.mount '/Main.js', WEBrick::HTTPServlet::FileHandler, 'Main.js'
-server.mount '/CodeEditor.js', WEBrick::HTTPServlet::FileHandler, 'CodeEditor.js'
-server.mount '/SouffleMode.js', WEBrick::HTTPServlet::FileHandler, 'SouffleMode.js'
+server.mount '/assets', WEBrick::HTTPServlet::FileHandler, 'assets'
+#server.mount '/Main.js', WEBrick::HTTPServlet::FileHandler, 'Main.js'
+#server.mount '/CodeEditor.js', WEBrick::HTTPServlet::FileHandler, 'CodeEditor.js'
+#server.mount '/souffle2.js', WEBrick::HTTPServlet::FileHandler, 'souffle2.js'
 
 trap("INT") { server.stop }
 server.start

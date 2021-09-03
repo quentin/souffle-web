@@ -7,9 +7,12 @@ import Bootstrap.Button as Button
 import Bootstrap.ButtonGroup as ButtonGroup
 import Bootstrap.Grid as Grid
 import Bootstrap.Form.Textarea as Textarea
-import Html exposing (text, div, pre)
+import Html exposing (text, div, pre, p)
 import Html.Attributes as Attributes
 import CodeEditor as Editor
+import Html.Parser
+import Html.Parser.Util
+import Json.Decode as D
 
 -- MAIN
 
@@ -26,23 +29,28 @@ main =
 type Page
   = Editor
 
+type alias SouffleResult =
+  { scc : String
+  , output : String
+  }
+
 type alias Model =
   { page : Page
   , code : String
-  , result : String
+  , result : SouffleResult
   }
 
 type Msg
   = Submit
-  | InputChanged String
-  | GotResult (Result Http.Error String)
+  | InputChanged String String
+  | GotResult (Result Http.Error SouffleResult)
   | LoadFooExample
 
 init : () -> (Model, Cmd Msg)
 init _ =
   ( { page = Editor
     , code = ""
-    , result = ""
+    , result = {scc = "",output = ""}
     }
   , Cmd.none
   )
@@ -60,9 +68,15 @@ view model =
   }
 
 editor model =
-  Grid.container []
+  let
+      -- convert the received <img> of the program SCC to virtual-dom value
+      scc = case (Html.Parser.run model.result.scc) of
+        Ok val -> Html.Parser.Util.toVirtualDom val
+        Err _ -> []
+  in
+  Grid.containerFluid []
       [ Grid.row []
-          [ Grid.col [] [ Editor.codeEditor [ Editor.editorValue model.code, Editor.onEditorChanged InputChanged ] [] ] ]
+          [ Grid.col [] [ Editor.codeEditor [ Editor.editorValue model.code, Editor.onEditorChanged (InputChanged "1" ) ] [] ] ]
       , Grid.row []
           [ Grid.col []
             [ ButtonGroup.buttonGroup []
@@ -76,17 +90,19 @@ editor model =
             ]
           ]
       , Grid.row []
-          [ Grid.col [] [ pre [Attributes.style "background-color" "gray", Attributes.disabled True] [text model.result] ] ]
+          [ Grid.col [] [ pre [Attributes.style "background-color" "gray", Attributes.disabled True] [text model.result.output] ] ]
+      , Grid.row []
+          [ Grid.col [] scc ]
       ]
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     LoadFooExample -> ( {model | code = fooExample}, Cmd.none )
-    InputChanged str -> ( {model | code = str}, Cmd.none)
+    InputChanged id str -> ( {model | code = str}, Cmd.none)
     Submit -> (submit model)
     GotResult (Ok value) -> ({model | result = value}, Cmd.none)
-    GotResult (Err e) -> ({model | result = "Error :("}, Cmd.none)
+    GotResult (Err e) -> ({model | result = {scc = "", output = ""}}, Cmd.none)
 
 submit : Model -> (Model, Cmd Msg)
 submit model =
@@ -94,9 +110,14 @@ submit model =
   , Http.post {
         url = "http://localhost:12000/run"
       , body = Http.stringBody "application/datalog" model.code
-      , expect = Http.expectString GotResult }
-  )
+      , expect = Http.expectJson GotResult souffleResultDecoder }
+  ) 
 
+souffleResultDecoder : D.Decoder SouffleResult
+souffleResultDecoder =
+  D.map2 SouffleResult
+    (D.field "scc" D.string)
+    ( D.field "output" D.string )
 
 -- SUBSCRIPTIONS
 
