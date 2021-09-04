@@ -21,6 +21,7 @@ customElements.define('code-editor', class extends HTMLElement {
       indentUnit: 4,
       mode: 'souffle',
       lineNumbers: true,
+      theme: 'solarized dark',
       value: this._editorValue
     });
 

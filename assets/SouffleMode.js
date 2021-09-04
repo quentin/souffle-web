@@ -1,12 +1,26 @@
 
 CodeMirror.defineSimpleMode("souffle", {
   start: [
+    // string
     {regex: /"[^\"]+"/, token: "string" },
+    // declaration
     {regex: /\.(?:decl)\b/, token: "keyword", next: "atom"},
-    {regex: /\.(?:output)\b/, token:"keyword"},
+    // output
+    {regex: /\.(?:output|input|functor|type|printsize|pragma|plan)\b/, token:"keyword"},
+    // comment block
     {regex: /\/\*/, token: "comment", next: "comment"},
-    {regex: /\/\/.*/, token: "comment"},
-    {regex: /[0-9]+/, token:"number"}
+    //
+    {regex: /#\w+/, token: "meta"},
+    // number
+    {regex: /[0-9]+/, token:"number"},
+    // types
+    {regex: /(?:symbol|number|unsigned|float)\b/, token:"type"},
+    // identifier
+    {regex: /([a-zA-Z_?][a-zA-Z0-9]*)/, token:"variable"},
+    // :-
+    {regex: /:\-/, token: "keyword"},
+    // operator
+    {regex: /[+\-*=<>!\/:%]/, token:"operator"}
   ],
 
   atom: [
@@ -23,5 +37,9 @@ CodeMirror.defineSimpleMode("souffle", {
   comment: [
     {regex: /.*?\*\//, token: "comment", next: "start"},
     {regex: /.*/, token: "comment"}
-  ]
+  ],
+
+  meta : {
+    lineComment: "//"
+  }
 });

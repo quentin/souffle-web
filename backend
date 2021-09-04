@@ -33,6 +33,23 @@ server.mount_proc '/run' do |req,res|
       end
     end
 
+    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle --show=initial-ram -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
+      out_text = stdout.read
+      err_text = stderr.read
+
+      stdin.close
+      stdout.close
+      stderr.close
+
+      exit_status = wait_thr.value
+
+      if exit_status.success?
+        json_res['ram'] = out_text
+      else
+        json_res['ram'] = ""
+      end
+    end
+
     Open3.popen3("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
       out_text = stdout.read
       err_text = stderr.read

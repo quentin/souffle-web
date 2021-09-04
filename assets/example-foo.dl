@@ -1,0 +1,15 @@
+/* the foo rule*/
+.decl foo( a:number, b:symbol)
+.output foo
+
+foo(1,"2").
+foo(4,"4").
+foo(33,"large").
+
+.decl query(a:number)
+.output query
+
+query(n) :-
+    foo(n,_),
+    n < 10.
+
