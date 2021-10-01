@@ -1,4 +1,16 @@
 
+const debounce = func => {
+  let token;
+  return function() {
+    const later = () => {
+      token = null;
+      func.apply(null, arguments);
+    };
+    cancelIdleCallback(token);
+    token = requestIdleCallback(later);
+  };
+};
+
 customElements.define('code-editor', class extends HTMLElement {
   constructor() {
     super();
@@ -19,15 +31,20 @@ customElements.define('code-editor', class extends HTMLElement {
   connectedCallback() {
     this._editor = CodeMirror(this, {
       indentUnit: 4,
+      indentWidth: 4,
+      tabSize: 4,
+      indentWithTabs: false,
       mode: 'souffle',
       lineNumbers: true,
       theme: 'solarized dark',
       value: this._editorValue
     });
 
-    this._editor.on('changes', () => {
+    const runDispatch = debounce(() => {
       this._editorValue = this._editor.getValue();
       this.dispatchEvent(new CustomEvent('editorChanged'));
     });
+
+    this._editor.on('changes', runDispatch);
   }
 })

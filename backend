@@ -5,8 +5,83 @@ require 'digest'
 require 'tempfile'
 require 'open3'
 require 'json'
+require 'securerandom'
 
 server = WEBrick::HTTPServer.new :Port => 12000
+
+def run_command cmd, &block
+    Open3.popen3(cmd) do |stdin, stdout, stderr, wait_thr|
+      out_text = stdout.read
+      err_text = stderr.read
+
+      stdin.close
+      stdout.close
+      stderr.close
+
+      exit_status = wait_thr.value
+
+      if block_given?
+        return yield(out_text, err_text, exit_status)
+      else
+        return [out_text, err_text, exit_status]
+      end
+    end
+end
+
+class Session
+
+  class Msg
+  end
+
+  class Run < Msg
+  end
+
+  class Model
+    def | hash
+      @hash.merge(hash)
+    end
+  end
+
+  def main
+    { view: method(:view) , update: method(:update) , init: method(:init)}
+  end
+
+  def update message, model
+    [ model , Cmd.none ]
+  end
+
+  def init
+    Model.new 
+  end
+
+  def view model
+  end
+end
+
+class Lifecycle
+  def initialize
+    @components = {}
+  end
+
+  def start component
+    id = SecureRandom.hex(10)
+    comp = component.main
+    @components[id] = comp[:init]
+    id
+  end
+
+  def stop id
+    @components.delete id
+  end
+
+end
+
+lifecycle = Lifecycle.new
+
+server.mount_proc '/session' do |req,res|
+  id = lifecycle.start Session.new
+  res.body = {id: id}.to_json
+end
 
 server.mount_proc '/run' do |req,res|
 
@@ -16,54 +91,27 @@ server.mount_proc '/run' do |req,res|
     f.write (req.body)
     f.rewind
 
-    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle --show=scc-graph -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
-      out_text = stdout.read
-      err_text = stderr.read
-
-      stdin.close
-      stdout.close
-      stderr.close
-
-      exit_status = wait_thr.value
-
-      if exit_status.success?
-        json_res['scc'] = out_text
+    run_command("/home/quentin/projects/souffle/build/src/souffle --show=scc-graph -F- -D- #{f.path}") do |out,err,status|
+      if status.success?
+        json_res['scc'] = out
       else
         json_res['scc'] = ""
       end
     end
 
-    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle --show=initial-ram -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
-      out_text = stdout.read
-      err_text = stderr.read
-
-      stdin.close
-      stdout.close
-      stderr.close
-
-      exit_status = wait_thr.value
-
-      if exit_status.success?
-        json_res['ram'] = out_text
+    run_command("/home/quentin/projects/souffle/build/src/souffle --show=initial-ram -F- -D- #{f.path}") do |out,err,status|
+      if status.success?
+        json_res['ram'] = out
       else
         json_res['ram'] = ""
       end
     end
 
-    Open3.popen3("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |stdin, stdout, stderr, wait_thr|
-      out_text = stdout.read
-      err_text = stderr.read
-
-      stdin.close
-      stdout.close
-      stderr.close
-
-      exit_status = wait_thr.value
-
-      if exit_status.success?
-        json_res['output'] = out_text
+    run_command("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |out,err,status|
+      if status.success?
+        json_res['output'] = out
       else
-        json_res['output'] = err_text
+        json_res['output'] = err
       end
     end
 
@@ -73,9 +121,6 @@ end
 
 server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
 server.mount '/assets', WEBrick::HTTPServlet::FileHandler, 'assets'
-#server.mount '/Main.js', WEBrick::HTTPServlet::FileHandler, 'Main.js'
-#server.mount '/CodeEditor.js', WEBrick::HTTPServlet::FileHandler, 'CodeEditor.js'
-#server.mount '/souffle2.js', WEBrick::HTTPServlet::FileHandler, 'souffle2.js'
 
 trap("INT") { server.stop }
 server.start

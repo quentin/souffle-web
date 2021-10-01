@@ -1,0 +1,345 @@
+
+// a program
+
+.decl program(p:symbol)
+.output program
+program("u_x = 12\ny =x  = 1-(4-1)\nres=u_x + 8 * 42 * y\ny = a*b+c*d").
+
+
+.comp Scanner { /* Program scanner */
+
+.decl character(pos:number, c:symbol)
+//.output character
+character(pos,c) :-
+	program(p),
+    pos = range(0,strlen(p)),
+    c = substr(p,pos,1).
+
+.type CharKind 
+  = Letter {}
+  | Whitespace {}
+  | Digit {}
+  | Sign {}
+  | IdentifierStart {}
+  | IdentifierNext {}
+
+.decl CHARSET(s:symbol, k:CharKind)
+CHARSET(" \n\t\v\b", $Whitespace() ).
+CHARSET("0123456789", $Digit() ).
+CHARSET("abcdefghijklmnopqrstuvwxyz", $Letter()).
+CHARSET("ABCDEFGHIJKLMNOPQRSTUVWXYZ", $Letter()).
+CHARSET("+-*/%=<>!", $Sign()).
+
+CHARSET(s, $IdentifierStart()) :-
+	CHARSET(s, $Letter());
+    s = "_".
+
+CHARSET(s, $IdentifierNext()) :-
+	CHARSET(s, $IdentifierStart());
+    CHARSET(s, $Digit()).
+
+//.output CHARSET
+
+.decl CHAR(c:symbol, k:CharKind)
+CHAR(c,k) :- 
+    CHARSET(s,k),
+    c = substr(s, range(0,strlen(s)), 1).
+
+.decl whitespace(pos:number)
+//.output whitespace
+whitespace(pos) :-
+	character(pos,c),
+    CHAR(c,$Whitespace()).
+
+.decl digit(pos:number)
+//.output digit
+digit(pos) :-
+	character(pos,c),
+    CHAR(c,$Digit()).
+
+.decl identifier_start(pos:number)
+//.output identifier_start
+identifier_start(pos) :- 
+	character(pos,c),
+    CHAR(c,$IdentifierStart()).
+    
+.decl identifier_next(pos:number)
+//.output identifier_next
+identifier_next(pos) :-
+	character(pos,c),
+    CHAR(c,$IdentifierNext()).
+    
+.decl sign(pos:number)
+sign(pos) :-
+	character(pos,c),
+    CHAR(c,$Sign()).
+
+.type SourceLoc = [start:number, len:number]
+
+.type TK
+  = Start {} // a token start
+  | End {} // a token end
+  | Number {}
+  | Identifier {}
+  | Operator {}
+  | LPar {}
+  | RPar {}
+
+// Scan program character stream left to right.
+// Each position in the program may be marked with at most 3 tokens:
+// - A Start token
+// - An End token
+// - A token that is neither Start nor End.
+//
+// A token may only start at a position that has a Start token.
+// Each end of token is marked with the End token.
+//
+.decl scan(pos:number, sloc: SourceLoc, tk:TK)
+//.output scan
+
+// first character of the program is a Start
+scan(0,nil,$Start()).
+
+// last character of the program is an End
+scan(endpos-1,nil,$End()) :- program(p), endpos = strlen(p).
+
+
+//// start propagate to the right on whitespace
+scan(pos+1,nil,$Start()) :-
+	whitespace(pos),
+	scan(pos,_,$Start()).
+    
+
+//// identifier
+// start of identifier
+scan(pos,[pos,1],$Identifier()) :-
+	identifier_start(pos),
+    scan(pos,_,$Start()).
+
+// next characters of identifier
+scan(pos,[start,len+1],$Identifier()) :-
+	identifier_next(pos),
+    scan(pos-1,[start,len],$Identifier()).
+    
+// end of identifier
+scan(pos,nil,$Start()),
+scan(pos-1,nil,$End()) :-
+	character(pos,_),
+    scan(pos-1,_,$Identifier()),
+    !identifier_next(pos).
+
+
+//// Operator
+// start of operator
+scan(pos,[pos,1],$Operator()) :-
+	sign(pos),
+    scan(pos,_,$Start()).
+
+// end of operator
+scan(pos,nil,$Start()) ,
+scan(pos-1,nil,$End()) :-
+	scan(pos-1,_,$Operator()),
+    character(pos,_),
+    !sign(pos).
+
+//// Parentheses
+scan(pos+1,nil,$Start()),
+scan(pos,nil,$End()),
+scan(pos,[pos,1],$LPar()) :-
+	character(pos,"("),
+    scan(pos,_,$Start()).
+    
+scan(pos+1,nil,$Start()),
+scan(pos,nil,$End()),
+scan(pos,[pos,1],$RPar()) :-
+	character(pos,")"),
+    scan(pos,_,$Start()).
+
+//// number
+// start of number
+scan(pos,[pos,1],$Number()) :-
+	digit(pos),
+	scan(pos,_,$Start()).
+    
+// next characters of number
+scan(pos,[start,len+1],$Number()) :-
+	digit(pos),
+    scan(pos-1,[start,len],$Number()).
+    
+// end of number
+scan(pos,nil,$Start()),
+scan(pos-1,nil,$End()) :-
+	scan(pos-1,_,$Number()),
+    character(pos,_),
+    !digit(pos).
+
+
+// the list of finalized tokens
+.decl token_unordered(start:number, len:number, kind:TK)
+//.output token_unordered
+token_unordered(start, len, tk) :-
+	scan(pos, _, $End()),
+    scan(pos, [start, len], tk),
+    tk != $End(),
+    tk != $Start().
+
+//.decl token_start_pos(pos:number)
+//token_start_pos(pos) :- token_unordered([pos,_],_).
+
+.type TokenId <: number
+
+// the ordered set of tokens
+.decl token(token_id:TokenId, sloc:SourceLoc, kind:TK)
+//.output token
+token(i, [start, len], tk) :-
+	token_unordered(start, len, tk),
+	i = count : { token_unordered(s,_,_), s < start }.
+
+.decl text(sloc:SourceLoc, s:symbol)
+//.output text
+text([start,len],s) :-
+    program(p),
+	token_unordered(start,len, _),
+    s = substr(p, start, len).
+
+} // Scanner
+
+.comp Parser {
+
+.type TokenId = scanner.TokenId
+.type ExprId <: number
+.type StmtId <: number
+
+//
+// Operators
+//
+
+.type Associativity
+  = Left {}
+  | Right {}
+  
+.type Priotity <: number
+
+.type Operator
+  = EQ {}
+  | ADD {}
+  | SUB {}
+  | MUL {}
+  | DIV {}
+
+.decl op_sem(str:symbol, op:Operator, priority:Priotity, left_to_right:Associativity)
+op_sem("=", $EQ(), 1, $Right()).
+op_sem("+", $ADD(), 2, $Left()).
+op_sem("-", $SUB(), 2, $Left()).
+op_sem("*", $MUL(), 3, $Left()).
+op_sem("/", $DIV(), 3, $Left()).
+
+//
+// Expressions
+//
+
+.type Expr
+  = Number {token:TokenId, v:number}
+  | Variable {token:TokenId, id:symbol}
+  | Paren {ltoken:TokenId, rtoken:TokenId, expr:Expr}
+  | BinOp {token:TokenId, op:Operator, lhs:Expr, rhs:Expr}
+
+
+// Build expressions bottom-up using operator priority and associativity.
+// Bootstrap with expression for numbers and variables, with priority 12 (must be higher than any operator).
+// Then expressions are formed from each operator, using compatible lhs and rhs expressions
+// among those computed by the previous step.
+// The process continues until all possible expressions have been formed.
+.decl build_expr(first_token:TokenId, last_token:TokenId, node:Expr, priority:Priotity) brie
+//.output build_expr
+
+// number
+build_expr(i, i, $Number(i, v), 12) :-
+    scanner.token(i, sloc, $scanner.Number()),
+    scanner.text(sloc, text),
+    v = to_number(text).
+
+// variable
+build_expr(i, i, $Variable(i, id), 12) :-
+    scanner.token(i, sloc, $scanner.Identifier()),
+    scanner.text(sloc, id).
+    
+// parentheses
+build_expr(ltoken, rtoken, $Paren(ltoken, rtoken, expr), 12) :-
+	scanner.token(ltoken, _, $scanner.LPar()),
+    scanner.token(rtoken, _, $scanner.RPar()),
+    build_expr(
+    	as(to_number(ltoken)+1,TokenId),
+        as(to_number(rtoken)-1,TokenId),
+        expr, _).
+
+// binary operator
+build_expr(first, last, $BinOp(i,op,lhs,rhs), pr) :-
+    scanner.token(i, sloc, $scanner.Operator()),
+    scanner.text(sloc, str),
+    op_sem(str,op,pr,l2r),
+   	build_expr(first, as(to_number(i)-1,TokenId), lhs, prlhs),
+    build_expr(as(to_number(i)+1,TokenId), last, rhs, prrhs),
+    ((l2r = $Left(), prlhs >= pr, prrhs > pr)
+    ;(l2r = $Right(), prlhs > pr, prrhs >= pr)).
+
+// select the widest (first,last) for each first.
+.decl start_max_span(fist_token: TokenId, last_token: TokenId)
+//.output start_max_span
+start_max_span(start,mx) :-
+    build_expr(start,_,_,_),
+    mx = max n : { build_expr(start,n,_,_)}.
+
+// Select expressions from left to right in the program.
+// Bootstrap at any expression starting with a token that is not contained by any other expression.
+// The k-th expression starts at the token immediately following the last token of the (k-1) expression.
+// Thus each token appears in at most one expression.
+.decl expr_unordered(first_token:TokenId, last_token: TokenId, node:Expr)
+//.output expr_unordered
+    
+expr_unordered(first, last, node) :-
+	start_max_span(first, last),
+    build_expr(first, last, node, _),
+    0 = count : { build_expr(f,l,_,_), f < first, l >= last }. 
+
+expr_unordered(first, last, node) :-
+    expr_unordered(_, as(to_number(first)-1,TokenId), _),
+    start_max_span(first, last),
+    build_expr(first,last,node,_).
+
+
+.decl expr(expr_id:ExprId, first_token:TokenId, last_token:TokenId, node:Expr)
+.output expr
+
+expr(id, first, last, node) :-
+	expr_unordered(first, last, node),
+    id = count : { expr_unordered(_,l,_), l < last}.
+
+.type Stmt
+  = ExprStmt {id:ExprId}
+  
+.decl stmt_unordered(first_token: TokenId, last_token: TokenId, node:Stmt)
+//.output stmt_unordered
+stmt_unordered(first_token, last_token, $ExprStmt(id)) :-
+	expr(id, first_token, last_token, _).
+    
+.decl stmt(stmt_id:StmtId, first_token:TokenId, lastToken:TokenId, node:Stmt)
+.output stmt
+stmt(id, first, last, node) :-
+	stmt_unordered(first, last, node),
+    id = count : { stmt_unordered(f,_,_), f < first }.
+
+} // Parser
+
+/* simple program evaluator */
+.comp Evaluator {
+
+} // Evaluator
+
+.init scanner = Scanner
+.init parser = Parser
+.init evaluator = Evaluator
+
+
+
+
