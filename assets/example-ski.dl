@@ -1,0 +1,219 @@
+// SKI combinator calculus
+// By implementing SKI combinator calculus, we demonstrate Souffle is Turing-complete.
+
+/*
+  The tree (xy) represents the function "x" applied to argument "y".
+  We can write trees of arbitrary depth either with all sub-trees parenthesized as in ((KS)(SK))
+  or with only right-sub-tree parenthesized as in KS(SK).
+  Parenthesizing only the right-most sub-tree makes this notation left-associative: ISK means ((IS)K).
+
+  The SKI language evaluates with the following rules:
+    Sxyz = (((Sx)y)z) 	-> xz(yz)
+    Kxy = ((Kx)y) 		-> x 
+    Ix  	        	-> x
+*/
+
+.decl program(p:symbol)
+
+/* 
+  SKSK = (((SK)S)K)
+  -> KK(SK) -> K */
+//evaluator.init($App($App($App($S(),$K()),$S()),$K())).
+program("SKSK").
+
+/*
+  SII is an expression that takes an argument and applies that argument to itself: 
+  SIIa -> a
+  SIIK -> K
+*/
+//evaluator.init($App($App($App($S(),$I()),$I()),$K())).
+program("SIIK").
+
+/* 
+  S(K(SI))K reverses the following two terms:
+  S(K(SI))Kab = ((((S(K(SI)))K)a)b)
+  -> (((K(SI)a)(Ka))b)
+  -> (SI)(Ka)b
+  -> Ib(Kab)
+  -> Iba
+  -> ba
+  S(K(SI))KIK -> KI
+*/
+program("S(K(SI))KIK").
+
+/*
+  SKI(KIS) -> I
+*/
+program("SKI(KIS)").
+
+/*
+  KS(I(SKSI)) -> S
+*/
+program("KS(I(SKSI))").
+
+.output evaluator.reduction
+
+.type Term =
+    S {} 
+  | K {}
+  | I {}
+  | App {l:Term, r:Term}
+
+/** query(t,result) : program p parsed as term t evaluates to result. */
+.decl query(p:symbol, t:Term, result:Term)
+.output query
+query(p, t, result) :-
+    parser.program_term(p, t),
+    evaluator.eval(t, result).
+
+/*================================================================*/
+//  EVALUATOR OF SKI TERMS
+/*================================================================*/
+
+.comp _eval {
+
+/** init(t) : t is the initial term we want to evaluate. */
+.decl init(t:Term)
+init(t) :- parser.program_term(_,t).
+
+/** terms(t) : t is a term that appears during the evaluation. */
+.decl terms(t:Term)
+
+// initial terms
+terms(x) :-
+	init(x).
+
+// split application sub-trees
+terms(x), terms(y) :-
+	terms($App(x,y)).
+
+/** reduction(t, t2, r) : term t is reducted to t2 by rule r. */
+.decl reduction(t:Term, t2:Term, r:symbol)
+
+// reduction by rule I
+terms(x), reduction(Ix, x, "I") :-
+  terms(Ix),
+  Ix = $App($I(), x).
+
+// reduction by rule K
+terms(x), reduction(Kxy, x, "K") :-
+  terms(Kxy),
+  Kxy = $App($App($K(),x),y).
+
+// reduction by rule S
+terms(result),
+terms(l),
+terms(r),
+reduction(Sxyz, result, "S") :-
+  terms(Sxyz),
+  Sxyz = $App($App($App($S(),x),y),z),
+  l = $App(x,z),
+  r = $App(y,z),
+  result = $App(l,r).
+
+// reduction of left sub-tree
+terms($App(l,y)),
+reduction($App(x,y), $App(l,y), "left") :-
+	terms($App(x,y)),
+    reduction(x,l,_).
+
+// reduction of right sub-tree
+terms($App(x,r)),
+reduction($App(x,y), $App(x,r), "right") :-
+	terms($App(x,y)),
+    reduction(y,r,_).
+
+/** eval(t,result) : term t evaluates to result after full reduction. */
+.decl eval(t:Term, result:Term)
+
+// trivial evaluation of symbols.
+eval($S(), $S()).
+eval($K(), $K()).
+eval($I(), $I()).
+
+// evaluate a reduction rule.
+eval(x, result) :-
+  reduction(x, z, _),
+  eval(z, result).
+
+// evaluate a non-reducible application.
+eval(t, result) :-
+	terms(t),
+	!reduction(t,_,_),
+    t = $App(x,y),
+    eval(x,l),
+    eval(y,r),
+    result = $App(l,r).
+
+}
+
+.init evaluator = _eval
+
+
+/*================================================================*/
+//  PARSER OF SKI PROGRAM
+/*================================================================*/
+
+.comp _parser {
+
+.decl character(p:symbol, pos:number, c:symbol)
+character(p, pos, c) :-
+    program(p),
+    pos = range(0, strlen(p)),
+    c = substr(p, pos, 1).
+
+.decl lpar(p:symbol, pos:number)
+lpar(p, pos) :- character(p, pos, "(").
+
+
+.decl rpar(p:symbol, pos:number)
+rpar(p, pos) :- character(p, pos, ")").
+
+.decl symb(p:symbol, pos:number, t:Term)
+symb(p, pos, t) :-
+    character(p, pos, c),
+    ( (c = "S", t = $S())
+    ; (c = "K", t = $K())
+    ; (c = "I", t = $I())
+    ).
+
+.decl leftmost(p:symbol, start:number, t:Term)
+
+leftmost(p, 0, t) :-
+    symb(p, 0, t).
+
+leftmost(p, start, t) :-
+    lpar(p, start-1),
+    symb(p, start, t).
+    
+.decl tree(p:symbol, start:number, end:number, t:Term)
+
+tree(p, start, start+1, t) :-
+    leftmost(p, start, t).
+
+tree(p, start, end+1, $App(l,r)) :-
+    leftmost(p, start, _),
+    tree(p, start, end, l),
+    symb(p, end, r).
+
+tree(p, start, end+1, t) :-
+    lpar(p, start),
+    tree(p, start+1, end, t),
+    rpar(p, end).
+
+tree(p, start, end, $App(l,r)) :-
+    leftmost(p, start, _),
+    tree(p, start, lend, l),
+    lpar(p, lend),
+    tree(p, lend, end, r).
+    
+.decl program_term(p:symbol, t:Term)
+program_term(p,t) :-
+	program(p),
+    tree(p, 0, strlen(p), t).
+
+}
+
+.init parser = _parser
+
+

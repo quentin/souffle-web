@@ -35,9 +35,23 @@
       <script>
         var storedState = localStorage.getItem('notebook-save');
         var startingState = storedState ? JSON.parse(storedState) : null;
+
         var app = Elm.Main.init({ flags: startingState });
+
         app.ports.setStorage.subscribe(function(state) {
                   localStorage.setItem('notebook-save', JSON.stringify(state));
+                });
+
+
+        var buffers = {}
+        // create a new editor document
+        function openBuffer(name, text, mode) {
+                  buffers[name] = CodeMirror.Doc(text, mode);
+                }
+
+
+        app.ports.openBuffer.subscribe(function(data) {
+                  openBuffer(data.name, data.text, data.mode);
                 });
       </script>
 </html>

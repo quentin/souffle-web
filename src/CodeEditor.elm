@@ -1,8 +1,9 @@
 
 module CodeEditor exposing
-  ( codeEditor
-  , editorValue
-  , onEditorChanged
+  ( id
+  , view
+  , value
+  , onChange
   )
 
 import Html exposing (Attribute, Html)
@@ -11,18 +12,26 @@ import Html.Events exposing (on)
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 
-codeEditor : List (Attribute msg) -> List (Html msg) -> Html msg
-codeEditor =
-  Html.node "code-editor"
+type Attribute msg
+  = Attr (Html.Attribute msg)
 
-editorValue : String -> Attribute msg
-editorValue value =
-  property "editorValue" <|
-    JE.string value
+unattr : Attribute msg -> Html.Attribute msg
+unattr (Attr a) =
+  a
 
-onEditorChanged : (String -> msg) -> Attribute msg
-onEditorChanged tagger =
-  on "editorChanged" <|
-    JD.map tagger <|
-      JD.at [ "target", "editorValue" ]
-        JD.string
+view: List (Attribute msg) -> Html msg
+view attributes =
+  Html.node "code-editor" (List.map unattr attributes) []
+
+value : String -> Attribute msg
+value =
+  JE.string >> property "editorValue" >> Attr
+
+id : String -> Attribute msg
+id =
+  Html.Attributes.id >> Attr
+
+onChange : (String -> msg) -> Attribute msg
+onChange tagger =
+  Attr <| on "change" (JD.map tagger (JD.at ["target","editorValue" ] JD.string))
+

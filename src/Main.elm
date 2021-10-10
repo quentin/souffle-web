@@ -9,8 +9,9 @@ import Bootstrap.Card as Card
 import Bootstrap.Form.Textarea as Textarea
 import Bootstrap.Grid as Grid
 import Bootstrap.Utilities.Flex as Flex
+import Dict exposing (Dict)
 import Browser exposing (Document)
-import CodeEditor as Editor
+import CodeEditor as CodeEditor
 import Html exposing (text, div, pre, p, h3)
 import Html.Attributes as Attributes
 import Html.Attributes exposing (src, style, class, classList)
@@ -19,12 +20,13 @@ import Html.Parser
 import Html.Parser.Util
 import Http
 import Json.Decode as D
+import Json.Decode.Extra exposing (dict2)
 import Json.Encode as E
 import SplitPane exposing (Orientation(..), ViewConfig, createViewConfig)
 
 -- MAIN
 
-exampleList = ["calc","pi","foo","lang"]
+exampleList = ["calc","pi","foo","lang", "ski"]
 
 main =
   Browser.document
@@ -35,6 +37,7 @@ main =
     }
 
 port setStorage : E.Value -> Cmd msg
+port openBuffer : {name:String, text:String, mode:String} -> Cmd msg
 
 type Page
   = Editor
@@ -45,8 +48,15 @@ type alias SouffleResult =
   , ram : String
   }
 
+type alias CodeBuffer =
+  { code : String
+  , name : String
+  }
+
 type alias Session =
-  { code : String }
+  { buffers : Dict Int CodeBuffer
+  , selectedBuffer : Int
+  }
 
 type alias Model =
   { page : Page
@@ -58,12 +68,13 @@ type alias Model =
 
 type Msg
   = Submit
-  | InputChanged String String
+  | InputChanged Int String
   | GotResult (Result Http.Error SouffleResult)
   | GotCode (Result Http.Error String)
   | LoadExample String
   | PaneMsg Int SplitPane.Msg
   | SelectMenu Int
+  | NewBuffer
 
 init : E.Value -> (Model, Cmd Msg)
 init flags =
@@ -71,25 +82,61 @@ init flags =
     { page = Editor
     , result = {scc = "", output = "", ram = ""}
     , panes = [SplitPane.init Horizontal, SplitPane.init Horizontal]
-    , session = {code = ""}
+    , session =
+        { buffers =
+              Dict.fromList[ (1, { name = "*scratch*", code = "" }) ]
+        , selectedBuffer = 1
+        }
     , menuenabled = 1
     } Cmd.none flags
 
 readFlags : Model -> Cmd msg -> E.Value -> (Model, Cmd msg)
 readFlags model cmds flags =
   case D.decodeValue decodeSession flags of
-    Ok session -> ({model | session = session} , cmds)
-    Err _ -> (model, Cmd.batch [ setStorage (encodeSession model.session), cmds] )
+    Ok session ->
+      (
+        {model | session = session} ,
+        Cmd.batch
+          ( cmds :: (List.map
+            (\couple -> let (id,{code,name}) = couple in openBuffer({name = name, text = code, mode = "souffle"}))
+            (Dict.toList session.buffers)))
+      )
+    Err _ ->
+      ( model
+      , Cmd.batch
+          ( (setStorage (encodeSession model.session)) ::
+            cmds ::
+            (List.map
+              (\couple -> let (id,{code,name}) = couple in openBuffer({name = name, text = code, mode = "souffle"}))
+              (Dict.toList model.session.buffers)))
+      )
 
 decodeSession : D.Decoder Session
 decodeSession =
-  D.map Session
+  D.map2 Session
+    (D.field "buffers"
+      (dict2 (D.int) decodeCodeBuffer))
+    (D.field "selectedBuffer" D.int)
+
+decodeCodeBuffer : D.Decoder CodeBuffer
+decodeCodeBuffer =
+  D.map2 CodeBuffer
     (D.field "code" D.string)
+    (D.field "name" D.string)
 
 encodeSession : Session -> E.Value
 encodeSession session =
   E.object
-    [ ("code", E.string session.code) ]
+  [ ( "buffers", E.dict String.fromInt encodeCodeBuffer session.buffers )
+  , ( "selectedBuffer", E.int session.selectedBuffer )
+  ]
+
+encodeCodeBuffer : CodeBuffer -> E.Value
+encodeCodeBuffer buffer =
+  E.object
+    [ ("code", E.string buffer.code)
+    , ("name", E.string buffer.name)
+    ]
 
 view : Model -> Document Msg
 view model =
@@ -150,18 +197,42 @@ resultsView model =
 stuffView : Model -> Html.Html Msg
 stuffView model =
   div [ style "overflow-y" "scroll", style "width" "100%", style "height" "100%"]
-      (Souffle.html (Souffle.parse model.session.code))
+      (Souffle.html
+        (Souffle.parse (currentBufferCode model.session)))
+
+currentBufferCode : Session -> String
+currentBufferCode session =
+  Maybe.withDefault ""
+    (Maybe.map
+      (\buffer -> buffer.code)
+      (Dict.get session.selectedBuffer session.buffers))
+
+currentBufferName : Session -> String
+currentBufferName session =
+  Maybe.withDefault ""
+    (Maybe.map
+      (\buffer -> buffer.name)
+      (Dict.get session.selectedBuffer session.buffers))
 
 editorView : Model -> Html.Html Msg
 editorView model =
   div [ style "width" "100%", style "height" "100%" ]
-    [ div [class "ui", class "sticky", style "height" "43px !important"]
+    [ div 
+        [class "ui"
+        , class "sticky"
+        , style "height" "43px !important"
+        , style "top" "0"
+        , style "left" "0"
+        , style "right" "0"
+        , style "overflow" "hidden"
+        , style "position" "absolute"
+        ]
         [ div [class "ui", class "top", class "tabular", class "menu"]
             [ Html.a [classList [("item",True), ("active", model.menuenabled == 1)], Html.Events.onClick (SelectMenu 1)]
-                [text "(New)"]
+                [text (currentBufferName model.session) ]
                 {--, Html.a [classList [("item",True), ("active", model.menuenabled == 2)], Html.Events.onClick (SelectMenu 2)] [text "Tab 2" ]
                 , Html.a [classList [("item",True), ("active", model.menuenabled == 3)], Html.Events.onClick (SelectMenu 3)] [text "Tab 3" ]--}
-            , Html.a [class "item"] [Html.i [class "plus icon"] [] ]
+            , Html.a [class "item", Html.Events.onClick (NewBuffer)] [Html.i [class "plus icon"] [] ]
             , div [class "right menu" ]
               [ div [class "ui small basic icon buttons"]
                 [ Html.button [class "ui button"] [ Html.i [class "file icon"] [] ]
@@ -176,12 +247,25 @@ editorView model =
               ]
             ]
         ]
-    , codeEditor model
+    , div
+        [ style "overflow-y" "auto"
+        , style "top" "43px"
+        , style "bottom" "0"
+        , style "overflow" "hidden"
+        , style "position" "absolute"
+        , style "left" "0"
+        , style "right" "0"
+        ]
+        [(codeEditor model.session)]
     ]
 
 
-codeEditor model =
-  Editor.codeEditor [ Editor.editorValue model.session.code, Editor.onEditorChanged (InputChanged "1" ) ] []
+codeEditor session =
+  CodeEditor.view
+    [ CodeEditor.id "ed_left"
+    , CodeEditor.value (currentBufferCode session)
+    , CodeEditor.onChange (InputChanged session.selectedBuffer )
+    ]
 
 exampleSelector model =
   div [ class "ui menu" ]
@@ -208,40 +292,45 @@ update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     LoadExample name -> ( model, (loadExample name))
-    InputChanged id code -> 
+    InputChanged bufferId code ->
       let
-          newmodel = updateCode model code
+          newsession = updateCode model.session bufferId code
+          newmodel = { model | session = newsession }
       in
-      ( newmodel , setStorage (encodeSession newmodel.session))
+      ( newmodel , setStorage (encodeSession newsession))
     Submit -> (submit model)
     GotResult (Ok value) -> ({model | result = value}, Cmd.none)
     GotResult (Err e) -> ({model | result = {scc = "", output = "", ram = ""}}, Cmd.none)
     GotCode (Ok code) ->
       let
-          newmodel = updateCode model code
+          newsession = updateCode model.session model.session.selectedBuffer code
+          newmodel = { model | session = newsession }
       in
-      ( newmodel , setStorage (encodeSession newmodel.session))
+      ( newmodel , setStorage (encodeSession newsession))
     GotCode (Err e) -> (model, Cmd.none)
     PaneMsg num paneMsg -> ( {model | panes = updatePanes model.panes num paneMsg } , Cmd.none)
     SelectMenu i -> ( {model | menuenabled = i }, Cmd.none )
+    NewBuffer -> (model, openBuffer { name = "somefile", text = "foo", mode = "souffle"})
 
 updatePanes : List SplitPane.State -> Int -> SplitPane.Msg -> List SplitPane.State
 updatePanes panes pos msg =
   List.indexedMap (\i -> \pane -> if i == pos then (SplitPane.update msg pane) else pane ) panes
 
-updateCode : Model -> String -> Model
-updateCode model code =
-      let
-          session = model.session
-          newsession = {session | code = code}
-      in {model | session = newsession}
+updateCode : Session -> Int -> String -> Session
+updateCode session bufferId newCode =
+  let
+      newBuffers = Dict.update bufferId
+        ( Maybe.map (\buffer -> {buffer | code = newCode}))
+        session.buffers
+  in
+  { session | buffers = newBuffers }
 
 submit : Model -> (Model, Cmd Msg)
 submit model =
   ( model
   , Http.post {
         url = "http://localhost:12000/run"
-      , body = Http.stringBody "application/datalog" model.session.code
+      , body = Http.stringBody "application/datalog" (currentBufferCode model.session)
       , expect = Http.expectJson GotResult souffleResultDecoder }
   )
 
