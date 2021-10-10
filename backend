@@ -110,12 +110,25 @@ server.mount_proc '/run' do |req,res|
     run_command("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |out,err,status|
       if status.success?
         json_res['output'] = out
+        json_res['success'] = true
       else
+        json_res['success'] = false
         json_res['output'] = err
+        json_res['errors'] = []
+        err.each_line do |line|
+          case line
+          when /^Error: (.*) in file (.*) at line ([0-9]+)/
+            msg = $1
+            file = $2
+            lineno = $3
+            json_res['errors'] << {message: msg, file: file, line: lineno}
+          end
+        end
       end
     end
 
     res.body = json_res.to_json
+    res.content_type = "application/json"
   end
 end
 

@@ -42,16 +42,19 @@
                   localStorage.setItem('notebook-save', JSON.stringify(state));
                 });
 
-
         var buffers = {}
-        // create a new editor document
-        function openBuffer(name, text, mode) {
-                  buffers[name] = CodeMirror.Doc(text, mode);
-                }
-
 
         app.ports.openBuffer.subscribe(function(data) {
-                  openBuffer(data.name, data.text, data.mode);
+                  buffers[data.name] = CodeMirror.Doc(data.text, data.mode);
+                });
+
+        app.ports.selectBuffer.subscribe(function(data) {
+                  editor = document.getElementById(data.editorId);
+                  if (editor === null || editor._editor === null) return;
+                  doc = buffers[data.bufferId];
+                  if (doc === null) return;
+                  editor._editor.swapDoc(doc);
+                  editor._editor.focus();
                 });
       </script>
 </html>

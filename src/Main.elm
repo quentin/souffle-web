@@ -37,7 +37,9 @@ main =
     }
 
 port setStorage : E.Value -> Cmd msg
-port openBuffer : {name:String, text:String, mode:String} -> Cmd msg
+port openBuffer : { name:String, text:String, mode:String } -> Cmd msg
+port selectBuffer: { editorId:String, bufferId:String } -> Cmd msg
+port closeBuffer: String -> Cmd msg
 
 type Page
   = Editor
@@ -51,6 +53,7 @@ type alias SouffleResult =
 type alias CodeBuffer =
   { code : String
   , name : String
+  , mode : String
   }
 
 type alias Session =
@@ -73,8 +76,9 @@ type Msg
   | GotCode (Result Http.Error String)
   | LoadExample String
   | PaneMsg Int SplitPane.Msg
-  | SelectMenu Int
+  | SelectBuffer Int
   | NewBuffer
+  | CloseBuffer Int
 
 init : E.Value -> (Model, Cmd Msg)
 init flags =
@@ -84,7 +88,7 @@ init flags =
     , panes = [SplitPane.init Horizontal, SplitPane.init Horizontal]
     , session =
         { buffers =
-              Dict.fromList[ (1, { name = "*scratch*", code = "" }) ]
+              Dict.fromList[ (1, { name = "*scratch*", code = "", mode = "souffle" }) ]
         , selectedBuffer = 1
         }
     , menuenabled = 1
@@ -98,7 +102,7 @@ readFlags model cmds flags =
         {model | session = session} ,
         Cmd.batch
           ( cmds :: (List.map
-            (\couple -> let (id,{code,name}) = couple in openBuffer({name = name, text = code, mode = "souffle"}))
+            (\couple -> let (id,{code,name,mode}) = couple in openBuffer({name = String.fromInt id, text = code, mode = mode}))
             (Dict.toList session.buffers)))
       )
     Err _ ->
@@ -107,7 +111,7 @@ readFlags model cmds flags =
           ( (setStorage (encodeSession model.session)) ::
             cmds ::
             (List.map
-              (\couple -> let (id,{code,name}) = couple in openBuffer({name = name, text = code, mode = "souffle"}))
+              (\couple -> let (id,{code,name,mode}) = couple in openBuffer({name = String.fromInt id, text = code, mode = mode}))
               (Dict.toList model.session.buffers)))
       )
 
@@ -120,9 +124,10 @@ decodeSession =
 
 decodeCodeBuffer : D.Decoder CodeBuffer
 decodeCodeBuffer =
-  D.map2 CodeBuffer
+  D.map3 CodeBuffer
     (D.field "code" D.string)
     (D.field "name" D.string)
+    (D.field "mode" D.string)
 
 encodeSession : Session -> E.Value
 encodeSession session =
@@ -136,6 +141,7 @@ encodeCodeBuffer buffer =
   E.object
     [ ("code", E.string buffer.code)
     , ("name", E.string buffer.name)
+    , ("mode", E.string buffer.mode)
     ]
 
 view : Model -> Document Msg
@@ -214,10 +220,31 @@ currentBufferName session =
       (\buffer -> buffer.name)
       (Dict.get session.selectedBuffer session.buffers))
 
+bufferTabsView : Session -> List (Html.Html Msg)
+bufferTabsView session =
+  Dict.foldr (\id -> \buffer -> \list -> (bufferTabItemView id buffer (session.selectedBuffer == id)) :: list ) [] session.buffers
+
+bufferTabItemView : Int -> CodeBuffer -> Bool -> Html.Html Msg
+bufferTabItemView id buffer selected =
+  Html.a
+    [ classList 
+      [ ("item",True)
+      , ("active", selected)
+      ]
+    , Html.Events.onClick (SelectBuffer id)
+    ]
+    [ text buffer.name
+    , Html.i
+      [ class "close icon"
+      , Html.Events.stopPropagationOn "click" (D.succeed (CloseBuffer id, True))
+      ]
+      []
+    ]
+
 editorView : Model -> Html.Html Msg
 editorView model =
   div [ style "width" "100%", style "height" "100%" ]
-    [ div 
+    [ div
         [class "ui"
         , class "sticky"
         , style "height" "43px !important"
@@ -226,26 +253,26 @@ editorView model =
         , style "right" "0"
         , style "overflow" "hidden"
         , style "position" "absolute"
+        , style "overflow-x" "auto"
         ]
         [ div [class "ui", class "top", class "tabular", class "menu"]
-            [ Html.a [classList [("item",True), ("active", model.menuenabled == 1)], Html.Events.onClick (SelectMenu 1)]
-                [text (currentBufferName model.session) ]
-                {--, Html.a [classList [("item",True), ("active", model.menuenabled == 2)], Html.Events.onClick (SelectMenu 2)] [text "Tab 2" ]
-                , Html.a [classList [("item",True), ("active", model.menuenabled == 3)], Html.Events.onClick (SelectMenu 3)] [text "Tab 3" ]--}
-            , Html.a [class "item", Html.Events.onClick (NewBuffer)] [Html.i [class "plus icon"] [] ]
-            , div [class "right menu" ]
-              [ div [class "ui small basic icon buttons"]
-                [ Html.button [class "ui button"] [ Html.i [class "file icon"] [] ]
-                , Html.button [class "ui button"] [ Html.i [class "save icon"] [] ]
-                , Html.button [class "ui button"] [ Html.i [class "upload icon"] [] ]
-                , Html.button [class "ui button"] [ Html.i [class "download icon"] [] ]
-                ]
-              , Html.button [class "ui positive right labeled icon button ", Html.Events.onClick Submit ] 
-                  [ Html.i [class "right play icon"] []
-                  , text "Run"
+            ( List.append
+                (bufferTabsView model.session)
+                [ Html.a [class "item", Html.Events.onClick (NewBuffer)] [Html.i [class "plus icon"] [] ]
+                , div [class "right menu" ]
+                  [ div [class "ui small basic icon buttons"]
+                    [ Html.button [class "ui button"] [ Html.i [class "file icon"] [] ]
+                    , Html.button [class "ui button"] [ Html.i [class "save icon"] [] ]
+                    , Html.button [class "ui button"] [ Html.i [class "upload icon"] [] ]
+                    , Html.button [class "ui button"] [ Html.i [class "download icon"] [] ]
+                    ]
+                  , Html.button [class "ui positive right labeled icon button ", Html.Events.onClick Submit ] 
+                      [ Html.i [class "right play icon"] []
+                      , text "Run"
+                      ]
                   ]
-              ]
-            ]
+                ]
+            )
         ]
     , div
         [ style "overflow-y" "auto"
@@ -274,7 +301,7 @@ exampleSelector model =
                     [ class "item", Html.Events.onClick (LoadExample name) ] 
                     [text name]) 
         exampleList)
-    
+
 outputView model =
     pre [Attributes.style "background-color" "#F8F8F8", Attributes.disabled True] [text model.result.output]
 
@@ -298,19 +325,74 @@ update msg model =
           newmodel = { model | session = newsession }
       in
       ( newmodel , setStorage (encodeSession newsession))
+
     Submit -> (submit model)
+
     GotResult (Ok value) -> ({model | result = value}, Cmd.none)
+
     GotResult (Err e) -> ({model | result = {scc = "", output = "", ram = ""}}, Cmd.none)
+
     GotCode (Ok code) ->
       let
           newsession = updateCode model.session model.session.selectedBuffer code
           newmodel = { model | session = newsession }
       in
       ( newmodel , setStorage (encodeSession newsession))
+
     GotCode (Err e) -> (model, Cmd.none)
+
     PaneMsg num paneMsg -> ( {model | panes = updatePanes model.panes num paneMsg } , Cmd.none)
-    SelectMenu i -> ( {model | menuenabled = i }, Cmd.none )
-    NewBuffer -> (model, openBuffer { name = "somefile", text = "foo", mode = "souffle"})
+
+    SelectBuffer i ->
+      let
+          session = model.session
+          newsession = { session | selectedBuffer = i }
+      in
+      ( {model | session = newsession }, 
+        Cmd.batch
+          [ setStorage (encodeSession newsession)
+          , selectBuffer {editorId = "ed_left", bufferId = String.fromInt i}
+          ]
+      )
+
+    NewBuffer ->
+      let
+          session = model.session
+          bufferId = Dict.foldl (\id -> \_ -> \res -> max res (id+1)) 1 session.buffers
+          bufferName = String.concat [ "*scratch-" , String.fromInt bufferId , "*"]
+          newbuffers = Dict.insert bufferId {code = "", name = bufferName, mode = "souffle"} session.buffers
+          newsession = { session | buffers = newbuffers }
+          newmodel = { model | session = newsession }
+      in
+      ( newmodel
+      , Cmd.batch
+        [ openBuffer
+          { name = String.fromInt bufferId
+          , text = ""
+          , mode = "souffle"
+          }
+        , setStorage (encodeSession newsession)
+        ]
+      )
+
+    CloseBuffer i ->
+      let
+          session = model.session
+          newbuffers = Dict.remove i session.buffers
+          newSelectedBuffer =
+            if session.selectedBuffer == i
+            then 1
+            else session.selectedBuffer
+          newsession = { session | buffers = newbuffers, selectedBuffer = newSelectedBuffer }
+          newmodel = { model | session = newsession }
+      in
+      ( newmodel
+      , Cmd.batch
+        [ selectBuffer { editorId = "ed_left", bufferId = String.fromInt newSelectedBuffer }
+        , closeBuffer (String.fromInt i)
+        , setStorage (encodeSession newsession)
+        ]
+      )
 
 updatePanes : List SplitPane.State -> Int -> SplitPane.Msg -> List SplitPane.State
 updatePanes panes pos msg =
@@ -329,7 +411,7 @@ submit : Model -> (Model, Cmd Msg)
 submit model =
   ( model
   , Http.post {
-        url = "http://localhost:12000/run"
+        url = "/run"
       , body = Http.stringBody "application/datalog" (currentBufferCode model.session)
       , expect = Http.expectJson GotResult souffleResultDecoder }
   )
@@ -338,7 +420,7 @@ loadExample : String -> Cmd Msg
 loadExample name =
   Http.get
   {
-    url = "http://localhost:12000/assets/example-" ++ name ++ ".dl",
+    url = "/assets/example-" ++ name ++ ".dl",
     expect = Http.expectString GotCode
   }
 
