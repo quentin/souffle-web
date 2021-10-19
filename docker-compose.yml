@@ -1,0 +1,8 @@
+
+services:
+  elm:
+    image: wunsh/alpine-elm
+    restart: always
+  souffle:
+    build: souffle/
+    restart: always
