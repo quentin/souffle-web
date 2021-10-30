@@ -5,8 +5,8 @@ RUN apk update
 RUN apk upgrade
 
 RUN apk add git
-#RUN git clone --depth 1 https://github.com/souffle-lang/souffle.git
-RUN git clone --branch lsbrelease --depth 1 https://github.com/quentin/souffle.git
+RUN git clone --depth 1 https://github.com/souffle-lang/souffle.git
+#RUN git clone --branch lsbrelease --depth 1 https://github.com/quentin/souffle.git
 
 RUN apk search -v '*libc*'
 
@@ -19,4 +19,4 @@ RUN cd souffle; \
     make -j"$(grep -c ^processor /proc/cpuinfo)"; \
     make install
 
-ENTRYPOINT ["souffle"]
+#ENTRYPOINT ["souffle"]

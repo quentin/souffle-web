@@ -5,9 +5,8 @@ require 'digest'
 require 'tempfile'
 require 'open3'
 require 'json'
+require 'mkmf'
 require 'securerandom'
-
-server = WEBrick::HTTPServer.new :Port => 12000
 
 def run_command cmd, &block
     Open3.popen3(cmd) do |stdin, stdout, stderr, wait_thr|
@@ -76,65 +75,100 @@ class Lifecycle
 
 end
 
-lifecycle = Lifecycle.new
+class App
+  USAGE = <<EOS
+backend --souffle-bin SOUFFLE
+EOS
 
-server.mount_proc '/session' do |req,res|
-  id = lifecycle.start Session.new
-  res.body = {id: id}.to_json
-end
+  def run args
 
-server.mount_proc '/run' do |req,res|
+    souffle_bin = nil
 
-  json_res = {}
-
-  Tempfile.create do |f|
-    f.write (req.body)
-    f.rewind
-
-    run_command("/home/quentin/projects/souffle/build/src/souffle --show=scc-graph -F- -D- #{f.path}") do |out,err,status|
-      if status.success?
-        json_res['scc'] = out
-      else
-        json_res['scc'] = ""
+    until args.empty?
+      arg = args.shift
+      case arg
+      when "-h","--help"
+        puts USAGE
+        exit 0
+      when "--souffle-bin"
+        souffle_bin = args.shift
       end
     end
 
-    run_command("/home/quentin/projects/souffle/build/src/souffle --show=initial-ram -F- -D- #{f.path}") do |out,err,status|
-      if status.success?
-        json_res['ram'] = out
-      else
-        json_res['ram'] = ""
-      end
+    if souffle_bin.nil?
+      raise "Missing SOUFFLE path"
+    end
+    if File.executable?(souffle_bin)
+      souffle_path = souffle_bin
+    else
+      raise ("Not an executable '%s'" % [souffle_bin])
     end
 
-    run_command("/home/quentin/projects/souffle/build/src/souffle -F- -D- #{f.path}") do |out,err,status|
-      if status.success?
-        json_res['output'] = out
-        json_res['success'] = true
-      else
-        json_res['success'] = false
-        json_res['output'] = err
-        json_res['errors'] = []
-        err.each_line do |line|
-          case line
-          when /^Error: (.*) in file (.*) at line ([0-9]+)/
-            msg = $1
-            file = $2
-            lineno = $3
-            json_res['errors'] << {message: msg, file: file, line: lineno}
+    lifecycle = Lifecycle.new
+    server = WEBrick::HTTPServer.new :Port => 12000
+
+
+    server.mount_proc '/session' do |req,res|
+      id = lifecycle.start Session.new
+      res.body = {id: id}.to_json
+    end
+
+    server.mount_proc '/run' do |req,res|
+
+      json_res = {}
+
+      Tempfile.create do |f|
+        f.write (req.body)
+        f.rewind
+
+        run_command("#{souffle_path} --show=scc-graph -F- -D- #{f.path}") do |out,err,status|
+          if status.success?
+            json_res['scc'] = out
+          else
+            json_res['scc'] = ""
           end
         end
+
+        run_command("#{souffle_path} --show=initial-ram -F- -D- #{f.path}") do |out,err,status|
+          if status.success?
+            json_res['ram'] = out
+          else
+            json_res['ram'] = ""
+          end
+        end
+
+        run_command("#{souffle_path} -F- -D- #{f.path}") do |out,err,status|
+          if status.success?
+            json_res['output'] = out
+            json_res['success'] = true
+          else
+            json_res['success'] = false
+            json_res['output'] = err
+            json_res['errors'] = []
+            err.each_line do |line|
+              case line
+              when /^Error: (.*) in file (.*) at line ([0-9]+)/
+                msg = $1
+                file = $2
+                lineno = $3
+                json_res['errors'] << {message: msg, file: file, line: lineno}
+              end
+            end
+          end
+        end
+
+        res.body = json_res.to_json
+        res.content_type = "application/json"
       end
     end
 
-    res.body = json_res.to_json
-    res.content_type = "application/json"
+    server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
+    server.mount '/assets', WEBrick::HTTPServlet::FileHandler, 'assets'
+
+    trap("INT") { server.stop }
+    server.start
   end
+
 end
 
-server.mount '/', WEBrick::HTTPServlet::FileHandler, 'index.html'
-server.mount '/assets', WEBrick::HTTPServlet::FileHandler, 'assets'
-
-trap("INT") { server.stop }
-server.start
-
+App.new.run(ARGV)

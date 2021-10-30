@@ -2,6 +2,8 @@
 
 all: assets/Main.js
 
+ELM=docker run --rm --user $(shell id -u) -v $(shell pwd):/opt/app -it elm
+
 assets/Main.js: src/*.elm
-	elm make src/Main.elm --output=assets/Main.js #--optimize
+	$(ELM) make src/Main.elm --output=assets/Main.js #--optimize
 
