@@ -5,26 +5,52 @@ require 'digest'
 require 'tempfile'
 require 'open3'
 require 'json'
-require 'mkmf'
 require 'securerandom'
 
 def run_command cmd, &block
-    Open3.popen3(cmd) do |stdin, stdout, stderr, wait_thr|
-      out_text = stdout.read
-      err_text = stderr.read
+  Open3.popen3(cmd) do |stdin, stdout, stderr, wait_thr|
+    stdin.close_write
 
-      stdin.close
-      stdout.close
-      stderr.close
+    err_text = ""
+    out_text = ""
 
-      exit_status = wait_thr.value
+    begin
+      files = [stdout,stderr]
 
-      if block_given?
-        return yield(out_text, err_text, exit_status)
-      else
-        return [out_text, err_text, exit_status]
+      until files.all?{|f| f.eof?}
+        ready = IO.select(files)
+
+        if ready
+          readable = ready[0]
+          readable.each do |f|
+            fileno = f.fileno
+
+            begin data = f.read_nonblock(1024)
+              if fileno == stdout.fileno
+                out_text += data
+              elsif fileno == stderr.fileno
+                err_text += data
+              end
+            rescue EOFError => e
+            end
+          end
+        end
       end
+    rescue IOError => e
+      STDERR.puts "IOError: #{e}"
     end
+
+    stdout.close_read
+    stderr.close_read
+
+    exit_status = wait_thr.value
+
+    if block_given?
+      return yield(out_text, err_text, exit_status)
+    else
+      return [out_text, err_text, exit_status]
+    end
+  end
 end
 
 class Session
@@ -114,7 +140,6 @@ EOS
     end
 
     server.mount_proc '/run' do |req,res|
-
       json_res = {}
 
       Tempfile.create do |f|
@@ -139,11 +164,11 @@ EOS
 
         run_command("#{souffle_path} -F- -D- #{f.path}") do |out,err,status|
           if status.success?
-            json_res['output'] = out
+            json_res['output'] = out + err
             json_res['success'] = true
           else
             json_res['success'] = false
-            json_res['output'] = err
+            json_res['output'] = err + out
             json_res['errors'] = []
             err.each_line do |line|
               case line

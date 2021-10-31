@@ -1,20 +1,25 @@
 FROM elm as elmbuild
+WORKDIR /app
 
-FROM alpine:latest
+COPY src /app/src
+COPY elm.json /app/elm.json
 
-COPY --from=elmbuild /bin/elm /bin/elm
+RUN /bin/elm make src/Main.elm --output=assets/Main.js
 
-RUN apk update && apk add gmp ncurses-libs nodejs libffi ruby ruby-bundler ruby-json ruby-webrick ruby-dev make
+FROM souffle
+RUN apk update && apk add ruby ruby-bundler ruby-json ruby-webrick libffi-dev graphviz
+#  zlib sqlite sqlite-libs libgomp ncurses-libs libffi libstdc++ libgcc
 
-COPY src /opt/app/src
-COPY assets /opt/app/assets
-COPY elm.json /opt/app/
-COPY backend /opt/app/
-#COPY Gemfile /opt/app/
-COPY index.html /opt/app/
+COPY assets /app/assets
+COPY backend /bin/backend
+COPY index.html /app/index.html
 
-WORKDIR /opt/app
+#COPY --from=soufflebuild /usr/local/include/souffle /include/souffle
+#COPY --from=soufflebuild /usr/local/bin/souffle /bin/souffle
+#COPY --from=soufflebuild /usr/local/bin/souffle-compile /bin/souffle-compile
 
-#RUN bundler
-RUN elm make src/Main.elm --output=assets/Main.js
+WORKDIR /app
+EXPOSE 12000
+ENTRYPOINT ["/bin/backend"]
+CMD ["--souffle-bin","/usr/local/bin/souffle"]
 
