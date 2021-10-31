@@ -1,17 +1,19 @@
 
-FROM alpine:latest
+# Use 3.13 because there is a compatibility issue between old versions of Docker (<20) and CMake
+# see https://gitlab.alpinelinux.org/alpine/aports/-/issues/12321
+FROM alpine:3.13
 
 RUN apk update
 RUN apk upgrade
-RUN apk add git make cmake bison flex g++ git sqlite sqlite-dev zlib zlib-dev ncurses-libs ncurses-dev libffi-dev libc6-compat libgomp
+RUN apk add git make cmake bison flex gcc g++ git sqlite sqlite-dev zlib zlib-dev ncurses-libs ncurses-dev libffi-dev libc6-compat libgomp
 
 
 WORKDIR /tmp
-RUN git clone --depth 1 --branch sh2ruby https://github.com/quentin/souffle.git
+RUN git clone --depth 1 --branch master https://github.com/souffle-lang/souffle.git
 
 WORKDIR /tmp/souffle
-#RUN sed -i -e "s/-e utf8 -W0/-E/g" src/main.cpp
-#RUN sed -i -e "s/mcpp/gcc/g" src/main.cpp
+RUN sed -i -e "s/-e utf8 -W0/-x c -E/g" src/main.cpp
+RUN sed -i -e "s/mcpp/gcc/g" src/main.cpp
 #RUN sed -i -e "s/libsouffle PUBLIC OpenMP/libsouffle PRIVATE OpenMP/g" src/CMakeLists.txt
 #RUN sed -i -e "s/libsouffle PUBLIC libffi/libsouffle PRIVATE libffi/g" src/CMakeLists.txt
 #RUN sed -i -e "s/libsouffle PUBLIC LibFFI::LibFFI/libsouffle PRIVATE LibFFI::LibFFI/g" src/CMakeLists.txt
