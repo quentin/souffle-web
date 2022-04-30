@@ -12,7 +12,7 @@ build_souffle: souffle.dockerfile
 build_elm: elm.dockerfile
 	docker build --pull -t elm -f elm.dockerfile .
 
-build_notebook: build_souffle build_elm assets/* src/*
+build_notebook: build_souffle build_elm assets/* src/* deps/*
 	docker build -t notebook .
 
 docker_run: build_notebook

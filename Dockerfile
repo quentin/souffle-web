@@ -2,6 +2,7 @@ FROM elm as elmbuild
 WORKDIR /app
 
 COPY src /app/src
+COPY deps /app/deps
 COPY elm.json /app/elm.json
 
 RUN /bin/elm make src/Main.elm --output=assets/Main.js

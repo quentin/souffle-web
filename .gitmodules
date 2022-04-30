@@ -1,0 +1,3 @@
+[submodule "deps/elm-split-pane"]
+	path = deps/elm-split-pane
+	url = https://github.com/quentin/elm-split-pane.git

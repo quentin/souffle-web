@@ -1,7 +1,8 @@
 {
     "type": "application",
     "source-directories": [
-        "src"
+        "src",
+        "deps/elm-split-pane/src"
     ],
     "elm-version": "0.19.1",
     "dependencies": {
@@ -16,8 +17,7 @@
             "elm-community/json-extra": "4.3.0",
             "hecrj/html-parser": "2.4.0",
             "mdgriffith/elm-ui": "1.1.8",
-            "rundis/elm-bootstrap": "5.2.0",
-            "whale9490/elm-split-pane": "1.0.0"
+            "rundis/elm-bootstrap": "5.2.0"
         },
         "indirect": {
             "avh4/elm-color": "1.0.0",
