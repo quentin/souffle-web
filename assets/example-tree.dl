@@ -1,0 +1,24 @@
+.type Tree = Empty{} | Node { val:number, lhs:Tree, rhs:Tree } | Leaf {val:number }
+
+.decl tree(t:Tree)
+
+.decl left, right, same(t:Tree)
+.output left, right, same()
+.output tree()
+
+tree($Node(1, $Node(2, $Leaf(4), $Leaf(4)), $Empty())).
+tree(t) :-
+    ( tree($Node(_,t,_))
+    ; tree($Node(_,_,t))
+    ).
+
+left(t) :-
+    tree(r),
+    r = $Node(_, t, _).
+
+right(t) :-
+   tree($Node(_,_,t)).
+
+same(t) :-
+    tree(r),
+    r = $Node(_, t, t).

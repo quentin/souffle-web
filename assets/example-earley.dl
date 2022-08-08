@@ -1,0 +1,89 @@
+
+// Earley parser
+
+.comp EarleyParser<S> {
+.type Slist = [head:S, tail:Slist]
+.decl program(stream:Slist)
+.decl production(head:S, body:Slist)
+.decl start_production(head:S, body:Slist)
+.decl accept(stream:Slist, prod:Slist)
+.decl scan(prog:Slist, state:Slist, prod:Slist)
+.decl comp(prog:Slist, origin:State, completion:State, nt:S)
+
+.type Prod = Slist
+.type State <: unsigned
+// Holds if the evaluation of program `prog` leads to the state where: 
+// - `stream` is the remaining non-terminal symbols in the input.
+// - `state_idx` is the index of the state.
+// - `origin_production` is the production that is being matched.
+// - `rest_to_match` is the symbols of the production's body remaining to match.
+// - `origin_idx` is the index of the origin state for the matching of the production.
+//
+// `state_idx` is redundant with the couple `(prog,stream)` and 
+// `origin_idx` could be replaced with the couple `(prog, origin_stream)` representing the origin state.
+//
+.decl state(prog:Slist, stream:Slist, state_idx:State, origin_production:Prod, rest_to_match:Slist, origin_idx:State, dbg:symbol)
+.output state()
+
+// initialization
+state(stream, stream, 0, [h,b], b, 0, "init") :-
+	program(stream),
+    start_production(h, b).
+
+// prediction
+state(prg, stream, k, [Y,gamma], gamma, k, "pred") :- 
+	state(prg, stream, k, _, [Y,_], _, _),
+    production(Y,gamma).
+
+// scanning
+state(prg, rest, k+1, p, beta, j, "scan"),
+scan(prg, [a,rest], p) :-
+	state(prg, [a, rest], k, p, [a, beta], j, _).
+    
+// completion
+state(prg, stream, k, p, beta, i, "comp"),
+comp(prg, j, k, Y) :-
+	state(prg, stream, k, [Y,_], nil, j, _),
+    state(prg, _, j, p, [Y,beta], i, _).
+
+accept(prg, [head, body]) :-
+	start_production(head, body),
+    state(prg, nil, _, [head, body], nil, 0, _).
+
+}
+
+
+.comp MyGrammar {
+	.type Symbols =
+    	P{}
+      | S{}
+      | M{}
+      | T{}
+      | Op{s:symbol} 
+      | Num{n:number}
+
+	.comp Parser : EarleyParser<Symbols> {
+    	start_production($P(), [$S(), nil]).
+        production(	$S(),	[$S(), [$Op("+"), [$M(), nil]]] ).
+        production( $S(),   [$M(), nil] ).
+        production( $M(),   [$M(), [$Op("*"), [$T(), nil]]] ).
+        production( $M(),   [$T(), nil] ).
+        production( $T(),   [$Num(n), nil] ) :- n = 1 ; n = 2 ; n = 3 ; n = 4.
+    }
+    .init parser = Parser
+}
+
+.init m = MyGrammar
+m.parser.program([
+	$m.Num(2), [
+    $m.Op("+"), [
+    $m.Num(3), [
+    $m.Op("*"), [
+    $m.Num(4), 
+    nil
+    ]]]]]).
+.output m.parser.start_production()
+.output m.parser.production()
+.output m.parser.accept()
+.output m.parser.comp()
+.output m.parser.scan()
